@@ -78,7 +78,7 @@ Task: Rewrite the "whyAppeared", "reminder", and "dailyTask" fields to be deeply
     return NextResponse.json(parsedResult);
 
   } catch (error: any) {
-    console.error("AI 生成失敗，使用保底文案:", error.message);
+    console.error("AI 生成失敗詳細資訊:", error);
     // 發生任何錯誤時，直接回傳原本設定好的靜態資料
     return NextResponse.json(baseCharacter);
   }
