@@ -30,6 +30,8 @@ const characterDatabase: Record<string, any> = {
 };
 
 export async function POST(request: Request) {
+  const body = await request.json();
+  console.log("前端傳來的資料:", body);
   try {
     const body = await request.json();
     const { worryTypeId, moodIndex, emotionText } = body;
