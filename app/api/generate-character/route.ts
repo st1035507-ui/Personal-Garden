@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// 靜態官方角色資料庫（產品規格書 7~10 頁規格）
+// 靜態官方角色資料庫
 const characterDatabase: Record<string, any> = {
   "1": {
     characterName: "小刺球 🦔",
@@ -30,30 +30,25 @@ const characterDatabase: Record<string, any> = {
 };
 
 export async function POST(request: Request) {
-  const body = await request.json();
-  console.log("前端傳來的資料:", body);
+  // 1. 先處理並暫存 body，避免重複讀取造成的錯誤
+  let body;
   try {
-    const body = await request.json();
-    const { worryTypeId, moodIndex, emotionText } = body;
+    body = await request.json();
+  } catch (e) {
+    return NextResponse.json({ error: "無效的請求格式" }, { status: 400 });
+  }
 
-    const searchKey = String(moodIndex).trim();
-    const baseCharacter = characterDatabase[searchKey];
+  const { worryTypeId, moodIndex, emotionText } = body;
+  console.log("前端傳來的資料:", { worryTypeId, moodIndex, emotionText });
 
-    if (!baseCharacter) {
-      throw new Error("找不到對應的心境角色選項");
-    }
+  const searchKey = String(moodIndex || "1").trim();
+  const baseCharacter = characterDatabase[searchKey] || characterDatabase["1"];
 
+  try {
     const apiKey = process.env.GEMINI_API_KEY;
-    
-    if (!apiKey) {
-      console.warn("尚未偵測到 GEMINI_API_KEY，目前以靜態官方文案保底回傳。");
-      return NextResponse.json(baseCharacter);
-    }
+    if (!apiKey) throw new Error("API Key 未設定");
 
-    // 初始化 Google 官方 SDK (自動處理端點與安全連線)
     const ai = new GoogleGenerativeAI(apiKey);
-    
-    // 使用最新、最穩定的 1.5 Flash 模型
     const model = ai.getGenerativeModel({ 
       model: 'gemini-2.5-flash-lite',
       generationConfig: {
@@ -62,56 +57,29 @@ export async function POST(request: Request) {
       }
     });
 
-    // 建立提示詞
     const systemInstruction = `
 You are Momo, the wise and warm owl guide of "Persona Garden".
-Your personality is gentle, empathetic, and never judgmental. You help users understand their current emotional state based on their scenario and choices.
+Your personality is gentle, empathetic, and never judgmental. 
 
-The user has triggered a specific core character in the garden: "${baseCharacter.characterName}".
-Official base context for this character:
-- Why appeared: ${baseCharacter.whyAppeared}
-- Momo's reminder: ${baseCharacter.reminder}
-- Daily task: ${baseCharacter.dailyTask}
+Current User Context:
+- Character Triggered: ${baseCharacter.characterName}
+- Official Base Context: ${JSON.stringify(baseCharacter)}
+- User Emotion Text: "${emotionText || 'User did not write extra text.'}"
 
-Current User Input Data:
-- Worry Category: ${worryTypeId}
-- Chosen Mood Option Number: ${moodIndex}
-- Specific User Emotion/Text: "${emotionText || 'User did not write extra text.'}"
-
-Your Task:
-Based on the official base context, rewrite and fine-tune the fields ("whyAppeared", "reminder", "dailyTask") to closely align with the user's specific worry and custom emotion text, while strictly maintaining the original soul, character name, and the core message of the official documentation. Keep the tone comforting, poetic, and supportive in Traditional Chinese (zh-TW).
-
-Respond ONLY with a valid JSON object matching this structure (do not include markdown block formatting):
-{
-  "characterName": "${baseCharacter.characterName}",
-  "whyAppeared": "Tailored explanation incorporating user's worry and text...",
-  "reminder": "Momo's tailored comforting reminder...",
-  "dailyTask": "A specific, low-pressure task tailored to their situation..."
-}
+Task: Rewrite the "whyAppeared", "reminder", and "dailyTask" fields to be deeply tailored to the user's emotion text, while keeping the character's soul and name intact. Output ONLY valid JSON.
 `;
 
-    // 呼叫官方 SDK 生成內容
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: systemInstruction }] }]
     });
 
     const aiResponseText = result.response.text();
-
-    if (aiResponseText) {
-      const parsedResult = JSON.parse(aiResponseText.trim());
-      return NextResponse.json(parsedResult);
-    }
-
-    return NextResponse.json(baseCharacter);
+    const parsedResult = JSON.parse(aiResponseText.trim());
+    return NextResponse.json(parsedResult);
 
   } catch (error: any) {
-    console.error("Gemini SDK 處理失敗，走保底機制：", error);
-    try {
-      const body = await request.json();
-      const searchKey = String(body.moodIndex).trim();
-      return NextResponse.json(characterDatabase[searchKey] || characterDatabase["1"]);
-    } catch {
-      return NextResponse.json(characterDatabase["1"]);
-    }
+    console.error("AI 生成失敗，使用保底文案:", error.message);
+    // 發生任何錯誤時，直接回傳原本設定好的靜態資料
+    return NextResponse.json(baseCharacter);
   }
 }
